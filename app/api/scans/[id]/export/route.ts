@@ -12,7 +12,7 @@ type ScanMatch = {
     documents?: {
       filename?: string | null;
     } | null;
-    question_number?: string | null;
+    question_number?: string | number | null;
     page_number?: number | null;
   } | null;
 
@@ -20,7 +20,7 @@ type ScanMatch = {
     documents?: {
       filename?: string | null;
     } | null;
-    question_number?: string | null;
+    question_number?: string | number | null;
     page_number?: number | null;
   } | null;
 
@@ -32,10 +32,10 @@ type ScanMatch = {
 
 type ReportRow = {
   pdfA: string;
-  questionA: string | number;
+  questionA: string;
   pageA: number;
   pdfB: string;
-  questionB: string | number;
+  questionB: string;
   pageB: number;
   similarity: number;
   category: string;
@@ -68,7 +68,8 @@ export async function GET(
 
     const url = new URL(req.url);
     const format = url.searchParams.get('format') ?? 'csv';
-    const conflictsOnly = url.searchParams.get('conflicts') !== 'false';
+    const conflictsOnly =
+      url.searchParams.get('conflicts') !== 'false';
 
     const rawMatches = await getScanMatches(id);
     const matches = rawMatches as ScanMatch[];
@@ -81,11 +82,15 @@ export async function GET(
 
     const rows: ReportRow[] = filteredMatches.map((match) => ({
       pdfA: match.question_a?.documents?.filename ?? 'PDF A',
-      questionA: match.question_a?.question_number ?? '',
+      questionA: String(
+        match.question_a?.question_number ?? '',
+      ),
       pageA: match.question_a?.page_number ?? 0,
 
       pdfB: match.question_b?.documents?.filename ?? 'PDF B',
-      questionB: match.question_b?.question_number ?? '',
+      questionB: String(
+        match.question_b?.question_number ?? '',
+      ),
       pageB: match.question_b?.page_number ?? 0,
 
       similarity: match.final_score,
