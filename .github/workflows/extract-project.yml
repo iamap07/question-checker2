@@ -17,30 +17,51 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Extract project
+        shell: bash
         run: |
+          set -e
+
           if [ -f "package.json" ]; then
-            echo "Project already extracted. Nothing to do."
+            echo "Project already extracted."
             exit 0
           fi
 
+          if [ ! -f "question-paper-similarity-checker.zip" ]; then
+            echo "ZIP file not found."
+            exit 1
+          fi
+
+          rm -rf temp-project
           mkdir -p temp-project
 
           unzip -q question-paper-similarity-checker.zip -d temp-project
 
-          PROJECT_ROOT=$(dirname "$(find temp-project -name package.json -print -quit)")
+          PROJECT_ROOT="$(dirname "$(find temp-project -name package.json -print -quit)")"
 
           if [ -z "$PROJECT_ROOT" ] || [ "$PROJECT_ROOT" = "." ]; then
             echo "package.json not found inside ZIP"
             exit 1
           fi
 
-          cp -R "$PROJECT_ROOT"/. .
+          echo "Project root: $PROJECT_ROOT"
+
+          # Copy the application source, but intentionally do NOT copy
+          # .github/workflows files. GitHub blocks workflow modifications
+          # from this GitHub Actions token.
+          rsync -a \
+            --exclude='.github/' \
+            "$PROJECT_ROOT"/ .
 
           rm -rf temp-project
           rm -f question-paper-similarity-checker.zip
 
+          echo "Project extracted successfully."
+
       - name: Commit extracted project
+        shell: bash
         run: |
+          set -e
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
