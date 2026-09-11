@@ -56,11 +56,13 @@ type AnalyzeEventData = {
 type QuestionRecord = {
   id: string;
   document_id: string;
-  question_number: string | null;
+  question_number: string | number | null;
   page_number: number | null;
   raw_text: string;
   normalized_text: string;
   options_json: unknown;
+  answer?: unknown;
+  section?: string | null;
   subject: string | null;
   question_type: string | null;
   numeric_features?: {
@@ -112,7 +114,15 @@ const EMPTY_NUMERIC_FEATURES: SimilarityQuestion['numericFeatures'] = {
   operators: [],
 };
 
-function toQuestionNumber(value: string | number | null | undefined): string | null {
+const CONFLICT_CATEGORIES = new Set([
+  'EXACT_DUPLICATE',
+  'NEAR_DUPLICATE',
+  'SAME_STRUCTURE_DIFFERENT_VALUES',
+]);
+
+function toQuestionNumber(
+  value: string | number | null | undefined,
+): string | null {
   if (value === null || value === undefined) {
     return null;
   }
@@ -154,6 +164,8 @@ function toSimilarityQuestion(
     rawQuestionText: question.raw_text,
     questionText: question.normalized_text,
     options: question.options_json ?? [],
+    answer: question.answer,
+    section: question.section ?? null,
     subject: question.subject,
     questionType: question.question_type,
     numericFeatures: {
@@ -271,25 +283,101 @@ export const processDocument = inngest.createFunction(
 
       const existing = existingResult.data;
 
-      const downloaded = await step.run(
-        'download',
-        () => downloadPdf(sourceUrl, accessToken),
+      /*
+       * IMPORTANT:
+       * Keep the PDF Buffer inside a single Inngest step.
+       * Buffers cannot safely cross step serialization boundaries.
+       */
+      const processed = await step.run(
+        'download-and-process-pdf',
+        async () => {
+          const downloaded = await downloadPdf(
+            sourceUrl,
+            accessToken,
+          );
+
+          if (
+            existing?.content_hash === downloaded.contentHash &&
+            existing.question_count > 0 &&
+            existing.storage_path
+          ) {
+            return {
+              reused: true,
+              contentHash: existing.content_hash,
+              filename: existing.filename ?? 'PDF',
+              pageCount: 0,
+              questionCount: existing.question_count,
+              storagePath: existing.storage_path,
+            };
+          }
+
+          const storagePath =
+            `users/${existing?.user_id}/${downloaded.contentHash}.pdf`;
+
+          await uploadPdf(
+            storagePath,
+            downloaded.bytes,
+          );
+
+          const pages = await extractPdfText(
+            downloaded.bytes,
+          );
+
+          const sparsePages = pages
+            .filter(
+              (page) =>
+                page.itemCount < 8 ||
+                page.text.length < 80,
+            )
+            .map((page) => page.pageNumber);
+
+          const ocr =
+            sparsePages.length > 0
+              ? await ocrPages(
+                  downloaded.bytes,
+                  sparsePages,
+                )
+              : new Map<number, string>();
+
+          const mergedPages = pages.map((page) => ({
+            pageNumber: page.pageNumber,
+            text:
+              page.text.length >= 80
+                ? page.text
+                : (ocr.get(page.pageNumber) ??
+                  page.text),
+          }));
+
+          const questions = parseQuestions(
+            documentId,
+            downloaded.filename,
+            sourceUrl,
+            mergedPages,
+          );
+
+          return {
+            reused: false,
+            contentHash: downloaded.contentHash,
+            filename: downloaded.filename,
+            pageCount: pages.length,
+            questionCount: questions.length,
+            storagePath,
+            questions,
+          };
+        },
       );
 
-      if (
-        existing?.content_hash === downloaded.contentHash &&
-        existing.question_count > 0 &&
-        existing.storage_path
-      ) {
+      if (processed.reused) {
         const scan = await getScan(scanId);
 
         await bumpScan(scanId, {
           processed_documents:
             scan.processed_documents + 1,
           total_questions:
-            scan.total_questions + existing.question_count,
+            scan.total_questions +
+            processed.questionCount,
           current_step:
-            `Reused ${existing.filename ?? 'PDF'}`,
+            `Reused ${processed.filename}`,
         });
 
         await inngest.send({
@@ -305,59 +393,21 @@ export const processDocument = inngest.createFunction(
         };
       }
 
-      const storagePath =
-        `users/${existing?.user_id}/${downloaded.contentHash}.pdf`;
-
-      await step.run(
-        'store',
-        () => uploadPdf(storagePath, downloaded.bytes),
-      );
-
-      const pages = await step.run(
-        'extract-text',
-        () => extractPdfText(downloaded.bytes),
-      );
-
-      const sparsePages = pages
-        .filter(
-          (page) =>
-            page.itemCount < 8 ||
-            page.text.length < 80,
-        )
-        .map((page) => page.pageNumber);
-
-      const ocr =
-        sparsePages.length > 0
-          ? await step.run(
-              'ocr',
-              () => ocrPages(downloaded.bytes, sparsePages),
-            )
-          : new Map<number, string>();
-
-      const mergedPages = pages.map((page) => ({
-        pageNumber: page.pageNumber,
-        text:
-          page.text.length >= 80
-            ? page.text
-            : (ocr.get(page.pageNumber) ?? page.text),
-      }));
-
-      const questions = parseQuestions(
+      await replaceQuestions(
         documentId,
-        downloaded.filename,
-        sourceUrl,
-        mergedPages,
+        processed.questions ?? [],
       );
 
-      await replaceQuestions(documentId, questions);
-
-      await saveDocumentProcessing(documentId, {
-        hash: downloaded.contentHash,
-        size: downloaded.bytes.length,
-        storagePath,
-        pageCount: pages.length,
-        status: 'processed',
-      });
+      await saveDocumentProcessing(
+        documentId,
+        {
+          hash: processed.contentHash,
+          size: 0,
+          storagePath: processed.storagePath,
+          pageCount: processed.pageCount,
+          status: 'processed',
+        },
+      );
 
       const scan = await getScan(scanId);
 
@@ -365,9 +415,10 @@ export const processDocument = inngest.createFunction(
         processed_documents:
           scan.processed_documents + 1,
         total_questions:
-          scan.total_questions + questions.length,
+          scan.total_questions +
+          processed.questionCount,
         current_step:
-          `Processed ${downloaded.filename}`,
+          `Processed ${processed.filename}`,
       });
 
       await inngest.send({
@@ -379,7 +430,7 @@ export const processDocument = inngest.createFunction(
       });
 
       return {
-        questions: questions.length,
+        questions: processed.questionCount,
       };
     } catch (error) {
       const message =
@@ -580,7 +631,8 @@ export const analyzeScan = inngest.createFunction(
 
         if (
           !questionB ||
-          questionA.document_id === questionB.document_id ||
+          questionA.document_id ===
+            questionB.document_id ||
           questionA.id > questionB.id
         ) {
           continue;
@@ -684,12 +736,6 @@ export const analyzeScan = inngest.createFunction(
     };
   },
 );
-
-const CONFLICT_CATEGORIES = new Set([
-  'EXACT_DUPLICATE',
-  'NEAR_DUPLICATE',
-  'SAME_STRUCTURE_DIFFERENT_VALUES',
-]);
 
 export const allFunctions = [
   discoverDocuments,
