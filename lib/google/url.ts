@@ -1,0 +1,2 @@
+export interface ParsedSheetUrl{spreadsheetId:string;gid:string}
+export function parseGoogleSheetUrl(input:string):ParsedSheetUrl{let u:URL;try{u=new URL(input.trim())}catch{throw new Error('Invalid Google Sheets URL')}if(u.hostname!=='docs.google.com'||!u.pathname.startsWith('/spreadsheets/d/'))throw new Error('URL must be a Google Sheets URL');const parts=u.pathname.split('/'),i=parts.indexOf('d'),spreadsheetId=parts[i+1];if(!spreadsheetId)throw new Error('Spreadsheet ID is missing');return {spreadsheetId,gid:u.searchParams.get('gid')??u.hash.match(/gid=(\d+)/)?.[1]??'0'}}

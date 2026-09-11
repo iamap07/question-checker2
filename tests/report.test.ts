@@ -1,0 +1,2 @@
+import {describe,expect,it} from 'vitest'; import {toCsv} from '@/lib/export/report';
+describe('report exports',()=>{it('escapes CSV cells and includes report headers',()=>{const csv=toCsv([{pdfA:'A,one.pdf',questionA:'Q1',pageA:1,pdfB:'B.pdf',questionB:'Q2',pageB:3,similarity:.94,category:'NEAR_DUPLICATE',confidence:.96,reason:'same "model"'}]);expect(csv).toContain('PDF A');expect(csv).toContain('"A,one.pdf"');expect(csv).toContain('same ""model""')})});

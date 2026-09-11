@@ -1,0 +1,2 @@
+import {createWorker} from 'tesseract.js'; import {renderPageForOcr} from './text';
+export async function ocrPages(bytes:Buffer,pages:number[]){if(!pages.length)return new Map<number,string>();const w=await createWorker(process.env.OCR_LANG??'eng');const out=new Map<number,string>();try{for(const n of pages){const image=await renderPageForOcr(bytes,n);const r=await w.recognize(image);out.set(n,r.data.text.replace(/\s+/g,' ').trim())}}finally{await w.terminate()}return out}

@@ -1,0 +1,3 @@
+import { google } from 'googleapis';
+export const parseDriveFileId=(u:string)=>u.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)([\w-]+)/)?.[1]??u.match(/[?&]id=([\w-]+)/)?.[1];
+export async function downloadDriveFile(fileId:string,accessToken:string){const auth=new google.auth.OAuth2();auth.setCredentials({access_token:accessToken});const drive=google.drive({version:'v3',auth});const m=await drive.files.get({fileId,fields:'name,mimeType'});if(m.data.mimeType!=='application/pdf')throw new Error(`Drive file is not a PDF (${m.data.mimeType})`);const r=await drive.files.get({fileId,alt:'media'},{responseType:'arraybuffer'});return {filename:m.data.name??`${fileId}.pdf`,bytes:Buffer.from(r.data as ArrayBuffer),mimeType:'application/pdf'}}

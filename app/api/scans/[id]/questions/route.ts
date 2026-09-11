@@ -1,0 +1,1 @@
+import {NextResponse} from 'next/server'; import {getScanQuestions} from '@/lib/database/repository'; export async function GET(_:Request,{params}:{params:Promise<{id:string}>}){try{return NextResponse.json(await getScanQuestions((await params).id))}catch(e){return NextResponse.json({error:e instanceof Error?e.message:String(e)},{status:500})}}

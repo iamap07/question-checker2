@@ -1,0 +1,49 @@
+{
+  "name": "question-paper-similarity-checker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:self": "node --experimental-strip-types tests/self-test.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.60.0",
+    "@napi-rs/canvas": "^0.1.70",
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.57.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "exceljs": "^4.4.0",
+    "googleapis": "^144.0.0",
+    "inngest": "^3.39.0",
+    "lucide-react": "^0.468.0",
+    "next": "^15.5.0",
+    "next-auth": "^4.24.11",
+    "pdfjs-dist": "^5.4.149",
+    "pdfkit": "^0.17.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwind-merge": "^2.6.0",
+    "tesseract.js": "^6.0.1",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/node": "^22.10.0",
+    "@types/pdfkit": "^0.13.9",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.35.0",
+    "eslint-config-next": "^15.5.0",
+    "prettier": "^3.6.2",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
