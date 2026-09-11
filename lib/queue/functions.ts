@@ -311,8 +311,8 @@ export const processDocument = inngest.createFunction(
 
       const existing = existingResult.data;
 
-      const processed =
-        await step.run<ProcessedDocument>(
+      const processed: ProcessedDocument =
+        await step.run(
           'download-and-process-pdf',
           async (): Promise<ProcessedDocument> => {
             const downloaded =
@@ -427,10 +427,6 @@ export const processDocument = inngest.createFunction(
           },
         );
 
-      /*
-       * For a reused document, the existing questions are
-       * already in the database, so do not replace them.
-       */
       if (processed.reused) {
         const scan =
           await getScan(scanId);
@@ -455,6 +451,8 @@ export const processDocument = inngest.createFunction(
 
         return {
           reused: true,
+          questions:
+            processed.questionCount,
         };
       }
 
@@ -498,6 +496,7 @@ export const processDocument = inngest.createFunction(
       });
 
       return {
+        reused: false,
         questions:
           processed.questionCount,
       };
