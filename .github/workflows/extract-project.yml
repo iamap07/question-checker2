@@ -1,0 +1,55 @@
+name: Extract Project
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract project
+        run: |
+          if [ -f "package.json" ]; then
+            echo "Project already extracted. Nothing to do."
+            exit 0
+          fi
+
+          mkdir -p temp-project
+
+          unzip -q question-paper-similarity-checker.zip -d temp-project
+
+          PROJECT_ROOT=$(dirname "$(find temp-project -name package.json -print -quit)")
+
+          if [ -z "$PROJECT_ROOT" ] || [ "$PROJECT_ROOT" = "." ]; then
+            echo "package.json not found inside ZIP"
+            exit 1
+          fi
+
+          cp -R "$PROJECT_ROOT"/. .
+
+          rm -rf temp-project
+          rm -f question-paper-similarity-checker.zip
+
+      - name: Commit extracted project
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Extract project source"
+          git push
