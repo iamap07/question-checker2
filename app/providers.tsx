@@ -9,5 +9,9 @@ type ProvidersProps = {
 export default function Providers({
   children,
 }: ProvidersProps) {
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+    </>
+  );
 }
