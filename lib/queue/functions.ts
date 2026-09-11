@@ -1,5 +1,4 @@
 import { inngest } from './inngest';
-
 import { readPdfLinksFromSheet } from '../google/sheets';
 
 import {
@@ -38,9 +37,9 @@ import type {
   SimilarityDecision,
 } from '../../types';
 
-/* -------------------------------------------------------------------------- */
-/*                                   Types                                    */
-/* -------------------------------------------------------------------------- */
+type DocumentRecord = Awaited<
+  ReturnType<typeof createOrGetDocument>
+>;
 
 type SheetEventData = {
   scanId: string;
@@ -92,20 +91,6 @@ type QuestionRow = {
   } | null;
 };
 
-/* -------------------------------------------------------------------------- */
-/*                              Small utilities                               */
-/* -------------------------------------------------------------------------- */
-
-const EMPTY_NUMERIC_FEATURES = {
-  numbers: [],
-  percentages: [],
-  ratios: [],
-  units: [],
-  variables: [],
-  equations: [],
-  operators: [],
-};
-
 const CONFLICT_CATEGORIES = new Set([
   'EXACT_DUPLICATE',
   'NEAR_DUPLICATE',
@@ -115,76 +100,129 @@ const CONFLICT_CATEGORIES = new Set([
 function asQuestionNumber(
   value: string | number | null | undefined,
 ): string {
-  return value === null || value === undefined
-    ? ''
-    : String(value);
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  return String(value);
 }
 
-function asNumber(value: number | null | undefined): number {
-  return typeof value === 'number' && Number.isFinite(value)
-    ? value
-    : 0;
+function asNumber(
+  value: number | null | undefined,
+): number {
+  if (
+    typeof value === 'number' &&
+    Number.isFinite(value)
+  ) {
+    return value;
+  }
+
+  return 0;
 }
 
 function toParsedQuestion(
   row: QuestionRow,
 ): ParsedQuestion {
-  const features = row.numeric_features ?? {};
+  const features =
+    row.numeric_features ?? {};
 
   return {
     documentId: row.document_id,
-    pdfName: row.documents?.filename ?? 'PDF',
-    pdfUrl: row.documents?.source_url ?? '',
-    questionNumber: asQuestionNumber(
-      row.question_number,
-    ),
-    pageNumber: asNumber(row.page_number),
-    rawQuestionText: row.raw_text ?? '',
-    questionText: row.normalized_text ?? '',
-    options: Array.isArray(row.options_json)
-      ? row.options_json
-      : [],
-    answer: row.answer ?? undefined,
-    section: row.section ?? undefined,
-    subject: row.subject ?? undefined,
+
+    pdfName:
+      row.documents?.filename ?? 'PDF',
+
+    pdfUrl:
+      row.documents?.source_url ?? '',
+
+    questionNumber:
+      asQuestionNumber(
+        row.question_number,
+      ),
+
+    pageNumber:
+      asNumber(row.page_number),
+
+    rawQuestionText:
+      row.raw_text ?? '',
+
+    questionText:
+      row.normalized_text ?? '',
+
+    options:
+      Array.isArray(
+        row.options_json,
+      )
+        ? row.options_json
+        : [],
+
+    answer:
+      row.answer ?? undefined,
+
+    section:
+      row.section ?? undefined,
+
+    subject:
+      row.subject ?? undefined,
+
     questionType:
       row.question_type ?? undefined,
+
     numericFeatures: {
-      numbers: Array.isArray(features.numbers)
-        ? features.numbers
-        : [],
-      percentages: Array.isArray(
-        features.percentages,
-      )
-        ? features.percentages
-        : [],
-      ratios: Array.isArray(features.ratios)
-        ? features.ratios
-        : [],
-      units: Array.isArray(features.units)
-        ? features.units
-        : [],
-      variables: Array.isArray(
-        features.variables,
-      )
-        ? features.variables
-        : [],
-      equations: Array.isArray(
-        features.equations,
-      )
-        ? features.equations
-        : [],
-      operators: Array.isArray(
-        features.operators,
-      )
-        ? features.operators
-        : [],
+      numbers:
+        Array.isArray(
+          features.numbers,
+        )
+          ? features.numbers
+          : [],
+
+      percentages:
+        Array.isArray(
+          features.percentages,
+        )
+          ? features.percentages
+          : [],
+
+      ratios:
+        Array.isArray(
+          features.ratios,
+        )
+          ? features.ratios
+          : [],
+
+      units:
+        Array.isArray(
+          features.units,
+        )
+          ? features.units
+          : [],
+
+      variables:
+        Array.isArray(
+          features.variables,
+        )
+          ? features.variables
+          : [],
+
+      equations:
+        Array.isArray(
+          features.equations,
+        )
+          ? features.equations
+          : [],
+
+      operators:
+        Array.isArray(
+          features.operators,
+        )
+          ? features.operators
+          : [],
     },
   };
 }
 
 /* -------------------------------------------------------------------------- */
-/*                           1. Discover documents                            */
+/*                           DISCOVER DOCUMENTS                               */
 /* -------------------------------------------------------------------------- */
 
 export const discoverDocuments =
@@ -194,7 +232,8 @@ export const discoverDocuments =
       retries: 2,
     },
     {
-      event: 'scan/discover.requested',
+      event:
+        'scan/discover.requested',
     },
     async ({ event, step }) => {
       const {
@@ -202,31 +241,43 @@ export const discoverDocuments =
         sheetUrl,
         userId,
         accessToken,
-      } = event.data as SheetEventData;
+      } =
+        event.data as SheetEventData;
 
-      const links = await step.run(
-        'read-sheet',
-        () =>
-          readPdfLinksFromSheet(
-            sheetUrl,
-            accessToken,
-          ),
-      );
+      const links =
+        await step.run(
+          'read-sheet',
+          () =>
+            readPdfLinksFromSheet(
+              sheetUrl,
+              accessToken,
+            ),
+        );
 
-      const docs = [];
+      /*
+       * Explicit type prevents TypeScript
+       * from treating docs as any[].
+       */
+      const docs: DocumentRecord[] = [];
 
       for (const link of links) {
-        const document = await step.run(
-          `document-${link.row}-${Buffer.from(
-            link.url,
-          )
-            .toString('base64url')
-            .slice(0, 12)}`,
-          () =>
-            createOrGetDocument(userId, {
-              url: link.url,
-            }),
-        );
+        const document =
+          await step.run(
+            `document-${link.row}-${Buffer.from(
+              link.url,
+            )
+              .toString(
+                'base64url',
+              )
+              .slice(0, 12)}`,
+            () =>
+              createOrGetDocument(
+                userId,
+                {
+                  url: link.url,
+                },
+              ),
+          );
 
         docs.push(document);
       }
@@ -236,9 +287,11 @@ export const discoverDocuments =
         () =>
           addScanDocuments(
             scanId,
-            docs.map((doc) => ({
-              id: doc.id,
-            })),
+            docs.map(
+              (doc) => ({
+                id: doc.id,
+              }),
+            ),
           ),
       );
 
@@ -246,10 +299,12 @@ export const discoverDocuments =
         await inngest.send({
           name:
             'document/process.requested',
+
           data: {
             scanId,
             documentId: doc.id,
-            sourceUrl: doc.source_url,
+            sourceUrl:
+              doc.source_url,
             accessToken,
           },
         });
@@ -262,7 +317,7 @@ export const discoverDocuments =
   );
 
 /* -------------------------------------------------------------------------- */
-/*                           2. Process document                              */
+/*                           PROCESS DOCUMENT                                 */
 /* -------------------------------------------------------------------------- */
 
 export const processDocument =
@@ -270,12 +325,14 @@ export const processDocument =
     {
       id: 'process-document',
       retries: 2,
+
       concurrency: {
         limit: 8,
       },
     },
     {
-      event: 'document/process.requested',
+      event:
+        'document/process.requested',
     },
     async ({ event, step }) => {
       const {
@@ -283,9 +340,11 @@ export const processDocument =
         documentId,
         sourceUrl,
         accessToken,
-      } = event.data as DocumentEventData;
+      } =
+        event.data as DocumentEventData;
 
-      const db = getSupabaseAdmin();
+      const db =
+        getSupabaseAdmin();
 
       await db
         .from('documents')
@@ -293,176 +352,209 @@ export const processDocument =
           status: 'processing',
           processing_error: null,
         })
-        .eq('id', documentId);
+        .eq(
+          'id',
+          documentId,
+        );
 
       try {
         /*
-         * EVERYTHING involving Buffer / Map / parsed question objects
-         * stays inside this step.
-         *
-         * We return only simple JSON-safe values from the step.
+         * All Buffer-dependent work remains
+         * inside a single Inngest step.
          */
-        const result = await step.run(
-          'download-process-and-save',
-          async () => {
-            const existingResult =
-              await db
-                .from('documents')
-                .select('*')
-                .eq('id', documentId)
-                .single();
+        const result =
+          await step.run(
+            'download-process-and-save',
+            async () => {
+              const existingResult =
+                await db
+                  .from('documents')
+                  .select('*')
+                  .eq(
+                    'id',
+                    documentId,
+                  )
+                  .single();
 
-            if (existingResult.error) {
-              throw existingResult.error;
-            }
+              if (
+                existingResult.error
+              ) {
+                throw existingResult.error;
+              }
 
-            const existing =
-              existingResult.data;
+              const existing =
+                existingResult.data;
 
-            const downloaded =
-              await downloadPdf(
-                sourceUrl,
-                accessToken,
-              );
+              const downloaded =
+                await downloadPdf(
+                  sourceUrl,
+                  accessToken,
+                );
 
-            /*
-             * Incremental processing:
-             * unchanged PDF + existing questions
-             * = reuse it.
-             */
-            if (
-              existing?.content_hash ===
-                downloaded.contentHash &&
-              Number(
-                existing.question_count ?? 0,
-              ) > 0 &&
-              existing.storage_path
-            ) {
-              return {
-                reused: true,
-                filename:
-                  existing.filename ??
-                  'PDF',
-                questionCount:
-                  Number(
-                    existing.question_count ??
-                      0,
-                  ),
-              };
-            }
+              /*
+               * Reuse unchanged document.
+               */
+              if (
+                existing?.content_hash ===
+                  downloaded.contentHash &&
+                Number(
+                  existing.question_count ??
+                    0,
+                ) > 0 &&
+                existing.storage_path
+              ) {
+                return {
+                  reused: true,
+                  filename:
+                    existing.filename ??
+                    'PDF',
+                  questionCount:
+                    Number(
+                      existing.question_count ??
+                        0,
+                    ),
+                };
+              }
 
-            const storagePath =
-              `users/${existing?.user_id ?? 'unknown'}/${downloaded.contentHash}.pdf`;
+              const storagePath =
+                `users/${existing?.user_id ?? 'unknown'}/${downloaded.contentHash}.pdf`;
 
-            await uploadPdf(
-              storagePath,
-              downloaded.bytes,
-            );
-
-            const pages =
-              await extractPdfText(
+              await uploadPdf(
+                storagePath,
                 downloaded.bytes,
               );
 
-            /*
-             * Pages with too little extracted text
-             * are sent through OCR.
-             */
-            const sparsePages = pages
-              .filter(
-                (page) =>
-                  page.itemCount < 8 ||
-                  page.text.length < 80,
-              )
-              .map(
-                (page) =>
-                  page.pageNumber,
-              );
+              const pages =
+                await extractPdfText(
+                  downloaded.bytes,
+                );
 
-            const ocrResult =
-              sparsePages.length > 0
-                ? await ocrPages(
-                    downloaded.bytes,
-                    sparsePages,
+              /*
+               * Detect pages requiring OCR.
+               */
+              const sparsePages =
+                pages
+                  .filter(
+                    (page) =>
+                      page.itemCount <
+                        8 ||
+                      page.text.length <
+                        80,
                   )
-                : new Map<number, string>();
+                  .map(
+                    (page) =>
+                      page.pageNumber,
+                  );
 
-            const mergedPages =
-              pages.map((page) => ({
-                pageNumber:
-                  page.pageNumber,
-                text:
-                  page.text.length >= 80
-                    ? page.text
-                    : (
-                        ocrResult.get(
-                          page.pageNumber,
-                        ) ??
-                        page.text
-                      ),
-              }));
+              const ocrResult =
+                sparsePages.length > 0
+                  ? await ocrPages(
+                      downloaded.bytes,
+                      sparsePages,
+                    )
+                  : new Map<
+                      number,
+                      string
+                    >();
 
-            const questions =
-              parseQuestions(
+              const mergedPages =
+                pages.map(
+                  (page) => ({
+                    pageNumber:
+                      page.pageNumber,
+
+                    text:
+                      page.text.length >=
+                      80
+                        ? page.text
+                        : (
+                            ocrResult.get(
+                              page.pageNumber,
+                            ) ??
+                            page.text
+                          ),
+                  }),
+                );
+
+              /*
+               * Parse only the question area.
+               */
+              const questions =
+                parseQuestions(
+                  documentId,
+                  downloaded.filename,
+                  sourceUrl,
+                  mergedPages,
+                );
+
+              /*
+               * Save questions while still
+               * inside the step.
+               */
+              await replaceQuestions(
                 documentId,
-                downloaded.filename,
-                sourceUrl,
-                mergedPages,
+                questions,
               );
 
-            /*
-             * Save extracted questions BEFORE leaving
-             * the Inngest step. This avoids Buffer/object
-             * serialization problems between steps.
-             */
-            await replaceQuestions(
-              documentId,
-              questions,
-            );
+              await saveDocumentProcessing(
+                documentId,
+                {
+                  hash:
+                    downloaded.contentHash,
 
-            await saveDocumentProcessing(
-              documentId,
-              {
-                hash: downloaded.contentHash,
-                size:
-                  downloaded.bytes.length,
-                storagePath,
-                pageCount:
-                  pages.length,
-                status: 'processed',
-              },
-            );
+                  size:
+                    downloaded.bytes
+                      .length,
 
-            return {
-              reused: false,
-              filename:
-                downloaded.filename,
-              questionCount:
-                questions.length,
-            };
-          },
-        );
+                  storagePath,
+
+                  pageCount:
+                    pages.length,
+
+                  status:
+                    'processed',
+                },
+              );
+
+              return {
+                reused: false,
+
+                filename:
+                  downloaded.filename,
+
+                questionCount:
+                  questions.length,
+              };
+            },
+          );
 
         const scan =
-          await getScan(scanId);
+          await getScan(
+            scanId,
+          );
 
         await bumpScan(
           scanId,
           {
             processed_documents:
-              scan.processed_documents + 1,
+              scan.processed_documents +
+              1,
+
             total_questions:
               scan.total_questions +
               result.questionCount,
-            current_step: result.reused
-              ? `Reused ${result.filename}`
-              : `Processed ${result.filename}`,
+
+            current_step:
+              result.reused
+                ? `Reused ${result.filename}`
+                : `Processed ${result.filename}`,
           },
         );
 
         await inngest.send({
           name:
             'questions/embed.requested',
+
           data: {
             scanId,
             documentId,
@@ -470,7 +562,9 @@ export const processDocument =
         });
 
         return {
-          reused: result.reused,
+          reused:
+            result.reused,
+
           questions:
             result.questionCount,
         };
@@ -484,7 +578,8 @@ export const processDocument =
           .from('documents')
           .update({
             status: 'failed',
-            processing_error: message,
+            processing_error:
+              message,
           })
           .eq(
             'id',
@@ -499,15 +594,20 @@ export const processDocument =
         );
 
         const scan =
-          await getScan(scanId);
+          await getScan(
+            scanId,
+          );
 
         await bumpScan(
           scanId,
           {
             processed_documents:
-              scan.processed_documents + 1,
+              scan.processed_documents +
+              1,
+
             errors_count:
-              scan.errors_count + 1,
+              scan.errors_count +
+              1,
           },
         );
 
@@ -520,7 +620,7 @@ export const processDocument =
   );
 
 /* -------------------------------------------------------------------------- */
-/*                              3. Embeddings                                 */
+/*                              EMBEDDINGS                                    */
 /* -------------------------------------------------------------------------- */
 
 export const embedQuestions =
@@ -528,6 +628,7 @@ export const embedQuestions =
     {
       id: 'embed-questions',
       retries: 2,
+
       concurrency: {
         limit: 3,
       },
@@ -540,17 +641,20 @@ export const embedQuestions =
       const {
         scanId,
         documentId,
-      } = event.data as EmbedEventData;
+      } =
+        event.data as EmbedEventData;
 
-      const db = getSupabaseAdmin();
+      const db =
+        getSupabaseAdmin();
 
-      const result = await db
-        .from('questions')
-        .select('*')
-        .eq(
-          'document_id',
-          documentId,
-        );
+      const result =
+        await db
+          .from('questions')
+          .select('*')
+          .eq(
+            'document_id',
+            documentId,
+          );
 
       if (result.error) {
         throw result.error;
@@ -560,10 +664,13 @@ export const embedQuestions =
         (result.data ??
           []) as QuestionRow[];
 
-      if (questions.length === 0) {
+      if (
+        questions.length === 0
+      ) {
         await inngest.send({
           name:
             'scan/analyze.requested',
+
           data: {
             scanId,
           },
@@ -588,16 +695,19 @@ export const embedQuestions =
             start + 50,
           );
 
-        const texts = chunk.map(
-          (question) =>
-            question.normalized_text,
-        );
+        const texts =
+          chunk.map(
+            (question) =>
+              question.normalized_text,
+          );
 
         const vectors =
           await step.run(
             `embed-${start}`,
             () =>
-              provider.embed(texts),
+              provider.embed(
+                texts,
+              ),
           );
 
         for (
@@ -617,6 +727,7 @@ export const embedQuestions =
       await inngest.send({
         name:
           'scan/analyze.requested',
+
         data: {
           scanId,
         },
@@ -630,7 +741,7 @@ export const embedQuestions =
   );
 
 /* -------------------------------------------------------------------------- */
-/*                          4. Analyze similarity                             */
+/*                         ANALYZE SIMILARITY                                 */
 /* -------------------------------------------------------------------------- */
 
 export const analyzeScan =
@@ -638,6 +749,7 @@ export const analyzeScan =
     {
       id: 'analyze-scan',
       retries: 2,
+
       concurrency: {
         limit: 1,
       },
@@ -650,12 +762,15 @@ export const analyzeScan =
       const { scanId } =
         event.data as AnalyzeEventData;
 
-      const db = getSupabaseAdmin();
+      const db =
+        getSupabaseAdmin();
 
       const scanDocumentsResult =
         await db
           .from('scan_documents')
-          .select('document_id')
+          .select(
+            'document_id',
+          )
           .eq(
             'scan_id',
             scanId,
@@ -667,21 +782,27 @@ export const analyzeScan =
         throw scanDocumentsResult.error;
       }
 
-      const documentIds = (
-        scanDocumentsResult.data ??
-        []
-      ).map(
-        (item) =>
-          item.document_id,
-      );
+      const documentIds =
+        (
+          scanDocumentsResult.data ??
+          []
+        ).map(
+          (item) =>
+            item.document_id,
+        );
 
-      if (documentIds.length === 0) {
+      if (
+        documentIds.length === 0
+      ) {
         await bumpScan(
           scanId,
           {
-            status: 'completed',
+            status:
+              'completed',
+
             completed_at:
               new Date().toISOString(),
+
             current_step:
               'No documents found',
           },
@@ -704,7 +825,9 @@ export const analyzeScan =
             documentIds,
           );
 
-      if (questionsResult.error) {
+      if (
+        questionsResult.error
+      ) {
         throw questionsResult.error;
       }
 
@@ -712,13 +835,18 @@ export const analyzeScan =
         (questionsResult.data ??
           []) as QuestionRow[];
 
-      if (questions.length === 0) {
+      if (
+        questions.length === 0
+      ) {
         await bumpScan(
           scanId,
           {
-            status: 'completed',
+            status:
+              'completed',
+
             completed_at:
               new Date().toISOString(),
+
             current_step:
               'No questions found',
           },
@@ -733,7 +861,9 @@ export const analyzeScan =
       let comparisons = 0;
       let conflicts = 0;
 
-      for (const rowA of questions) {
+      for (
+        const rowA of questions
+      ) {
         const candidates =
           await findEmbeddingCandidates(
             scanId,
@@ -742,7 +872,9 @@ export const analyzeScan =
             0.55,
           );
 
-        for (const candidate of candidates) {
+        for (
+          const candidate of candidates
+        ) {
           const rowB =
             questions.find(
               (question) =>
@@ -755,8 +887,8 @@ export const analyzeScan =
           }
 
           /*
-           * Never compare questions inside
-           * the same PDF.
+           * Never compare questions
+           * from the same PDF.
            */
           if (
             rowA.document_id ===
@@ -767,19 +899,23 @@ export const analyzeScan =
 
           /*
            * Canonical pair ordering.
-           * Prevents A-B + B-A duplicates.
            */
           if (
-            rowA.id > rowB.id
+            rowA.id >
+            rowB.id
           ) {
             continue;
           }
 
           const questionA =
-            toParsedQuestion(rowA);
+            toParsedQuestion(
+              rowA,
+            );
 
           const questionB =
-            toParsedQuestion(rowB);
+            toParsedQuestion(
+              rowB,
+            );
 
           const scores =
             scorePair(
@@ -802,11 +938,13 @@ export const analyzeScan =
             unknown = undefined;
 
           /*
-           * Claude is only used for uncertain /
-           * high-value candidates.
+           * Use Claude only for
+           * uncertain/high-value pairs.
            */
           if (
-            shouldVerify(scores) &&
+            shouldVerify(
+              scores,
+            ) &&
             process.env
               .ANTHROPIC_API_KEY
           ) {
@@ -820,7 +958,8 @@ export const analyzeScan =
 
               decision = {
                 ...verification,
-                verifiedByLlm: true,
+                verifiedByLlm:
+                  true,
               };
 
               verifierPayload =
@@ -863,15 +1002,19 @@ export const analyzeScan =
         {
           comparisons_generated:
             comparisons,
+
           conflicts_count:
             conflicts,
+
           current_step:
             'Similarity analysis complete',
         },
       );
 
       const scan =
-        await getScan(scanId);
+        await getScan(
+          scanId,
+        );
 
       await bumpScan(
         scanId,
@@ -880,8 +1023,10 @@ export const analyzeScan =
             scan.errors_count > 0
               ? 'completed_with_errors'
               : 'completed',
+
           completed_at:
             new Date().toISOString(),
+
           current_step:
             'Completed',
         },
@@ -895,7 +1040,7 @@ export const analyzeScan =
   );
 
 /* -------------------------------------------------------------------------- */
-/*                               Export list                                  */
+/*                               ALL FUNCTIONS                                */
 /* -------------------------------------------------------------------------- */
 
 export const allFunctions = [
