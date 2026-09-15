@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { getServerSession } from 'next-auth';
+import type { Session } from 'next-auth';
 
 import { parseGoogleSheetUrl } from '@/lib/google/url';
 import {
@@ -11,11 +12,19 @@ import {
 import { inngest } from '@/lib/queue/inngest';
 import { authOptions } from '@/lib/google/nextauth';
 
+type AppSession = Session & {
+  accessToken?: string;
+  googleSubject?: string;
+};
+
 const RequestSchema = z.object({
-  sheetUrl: z.string().url(),
+  sheetUrl: z
+    .string()
+    .url()
+    .min(1),
 });
 
-function oauthIsConfigured(): boolean {
+function isOAuthConfigured(): boolean {
   return Boolean(
     process.env.NEXTAUTH_SECRET &&
       process.env.GOOGLE_CLIENT_ID &&
@@ -23,40 +32,63 @@ function oauthIsConfigured(): boolean {
   );
 }
 
-export async function POST(req: Request) {
+export async function POST(
+  req: Request,
+) {
   try {
-    const body = await req.json();
+    const body =
+      await req.json();
 
-    const { sheetUrl } =
-      RequestSchema.parse(body);
-
-    /*
-     * Validate the Google Sheet URL before creating
-     * any database records.
-     */
-    const { spreadsheetId, gid } =
-      parseGoogleSheetUrl(sheetUrl);
-
-    let session: Awaited<
-      ReturnType<typeof getServerSession>
-    > = null;
+    const {
+      sheetUrl,
+    } =
+      RequestSchema.parse(
+        body,
+      );
 
     /*
-     * IMPORTANT:
-     * Public sheets must work even when Google OAuth
-     * has not been configured yet.
+     * Validate and parse the Google Sheet URL.
      */
-    if (oauthIsConfigured()) {
+    const {
+      spreadsheetId,
+      gid,
+    } =
+      parseGoogleSheetUrl(
+        sheetUrl,
+      );
+
+    /*
+     * Authentication is optional for public sheets.
+     * Only attempt to read the session when the
+     * required OAuth configuration exists.
+     */
+    let session:
+      | AppSession
+      | null = null;
+
+    if (
+      isOAuthConfigured()
+    ) {
       try {
-        session =
+        const authenticated =
           await getServerSession(
             authOptions,
           );
-      } catch {
+
+        session =
+          authenticated as
+            | AppSession
+            | null;
+      } catch (error) {
         /*
-         * Ignore authentication configuration
-         * failures for public/anonymous scans.
+         * A public scan should not fail merely because
+         * OAuth is not available/configured correctly.
          */
+        console.warn(
+          'OAuth session unavailable:',
+          error,
+        );
+
         session = null;
       }
     }
@@ -71,35 +103,45 @@ export async function POST(req: Request) {
     const user =
       await upsertUser({
         email,
+
         name:
           session?.user?.name ??
           'Public User',
+
         image:
           session?.user?.image ??
           undefined,
+
         googleSubject:
           session?.googleSubject ??
           undefined,
       });
 
     /*
-     * Public scans receive a random access token.
-     * This token is returned to the browser and is
-     * required to access the scan without login.
+     * Public scans receive a temporary token.
+     * Authenticated users do not need one.
      */
     const publicToken =
       session?.user?.email
         ? null
-        : crypto.randomBytes(32).toString(
+        : crypto.randomBytes(
+            32,
+          ).toString(
             'base64url',
           );
 
     const tokenHash =
       publicToken
         ? crypto
-            .createHash('sha256')
-            .update(publicToken)
-            .digest('hex')
+            .createHash(
+              'sha256',
+            )
+            .update(
+              publicToken,
+            )
+            .digest(
+              'hex',
+            )
         : null;
 
     const scan =
@@ -114,33 +156,43 @@ export async function POST(req: Request) {
         },
       );
 
+    /*
+     * Start the asynchronous discovery pipeline.
+     */
     await inngest.send({
       name:
         'scan/discover.requested',
 
       data: {
-        scanId: scan.id,
-        sheetUrl,
-        userId: user.id,
+        scanId:
+          scan.id,
 
-        /*
-         * OAuth access token is only forwarded
-         * when the user is actually authenticated.
-         */
+        sheetUrl,
+
+        userId:
+          user.id,
+
         accessToken:
           session?.accessToken ??
           undefined,
       },
     });
 
-    return NextResponse.json({
-      id: scan.id,
-      token: publicToken,
-      authenticated:
-        Boolean(
-          session?.user?.email,
-        ),
-    });
+    return NextResponse.json(
+      {
+        id:
+          scan.id,
+
+        token:
+          publicToken,
+
+        authenticated:
+          Boolean(
+            session?.user
+              ?.email,
+          ),
+      },
+    );
   } catch (error) {
     console.error(
       'Create scan error:',
